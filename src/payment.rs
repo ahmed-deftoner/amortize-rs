@@ -3,7 +3,7 @@ use chrono::NaiveDate;
 
 #[derive(Debug, Clone)]
 pub struct Payment {
-    pub installment_number: u8,
+    pub installment_number: u32,
     pub beginning_balance: f64,
     pub ending_balance: f64,
     pub interest: f64,

@@ -1,6 +1,7 @@
 use std::fmt;
-use chrono::{Duration, NaiveDate};
+use chrono::NaiveDate;
 use crate::payment::Payment;
+use crate::error::AmortizationError;
 
 #[derive(Debug, Clone)]
 pub struct Amortization {
@@ -42,7 +43,16 @@ pub struct CalculatorConfig {
 }
 
 impl Amortization {
-    pub fn new(balance: f64, apr: f64, periods: u32, start_date: Option<NaiveDate>) -> Self {
+    pub fn new(balance: f64, apr: f64, periods: u32, start_date: Option<NaiveDate>) -> Result<Self, AmortizationError>  {
+        if periods == 0 {
+            return Err(AmortizationError::InvalidPeriods(periods));
+        }
+        if apr <= 0.0 {
+            return Err(AmortizationError::InvalidInterestRate(apr));
+        }
+        if balance <= 0.0 {
+            return Err(AmortizationError::InvalidLoanAmount(balance));
+        }
         let periodic_interest = apr / 100.0 / 12.0; 
 
         let mut amortization = Amortization {
@@ -57,25 +67,38 @@ impl Amortization {
             end_date: start_date,  
         };
 
-        amortization.periodic_payment = amortization.calculate_periodic_payment_amount();
-        amortization.schedule = amortization.calculate_schedule();
+        amortization.periodic_payment = amortization.calculate_periodic_payment_amount()?;
+        amortization.schedule = amortization.calculate_schedule()?;
         amortization.total_payment = amortization.calculate_total_payment();
         amortization.total_interest = amortization.calculate_total_interest();
 
-        amortization
+        Ok(amortization)
     }
 
-    pub fn calculate_periodic_payment_amount(&self) -> f64 {
+    pub fn calculate_periodic_payment_amount(&self) -> Result<f64, AmortizationError> {
         let rate = self.periodic_interest;
         let nper = self.periods as f64;
         let pv = self.balance;
 
-        // Using the PMT formula: PMT = PV * (r * (1 + r)^n) / ((1 + r)^n - 1)
-        let payment = pv * 
-            (rate * (1.0 + rate).powf(nper)) / 
-            ((1.0 + rate).powf(nper) - 1.0);
+        let base = 1.0 + rate;
+        let exp = base.powf(nper);
         
-        (payment * 100.0).round() / 100.0
+        if exp.is_infinite() || exp.is_nan() {
+            return Err(AmortizationError::CalculationError(
+                "Overflow in payment calculation".to_string()
+            ));
+        }
+
+        // Using the PMT formula: PMT = PV * (r * (1 + r)^n) / ((1 + r)^n - 1)
+        let payment = pv * (rate * exp) / (exp - 1.0);
+
+        if payment.is_infinite() || payment.is_nan() {
+            return Err(AmortizationError::CalculationError(
+                "Invalid payment calculation result".to_string()
+            ));
+        }
+        
+        Ok((payment * 100.0).round() / 100.0)
     }
     
     pub fn calculate_total_payment(&self) -> f64 {
@@ -86,13 +109,27 @@ impl Amortization {
         self.total_payment - self.balance
     }
 
-    pub fn calculate_payment(&self, balance: f64, installment_number: u8, beginning_balance: f64) -> Payment {
+    pub fn calculate_payment(&self, balance: f64, installment_number: u32, beginning_balance: f64) ->  Result<Payment, AmortizationError> {
         let interest = balance * self.periodic_interest;
+
+        if interest.is_nan() || interest.is_infinite() {
+            return Err(AmortizationError::CalculationError(
+                "Invalid interest calculation".to_string()
+            ));
+        }
+
         let principal = if balance < self.periodic_payment {
             balance
         } else {
             self.periodic_payment - interest
         };
+
+        if principal.is_nan() || principal.is_infinite() {
+            return Err(AmortizationError::CalculationError(
+                "Invalid principal calculation".to_string()
+            ));
+        }
+
         let remaining_balance = if balance < self.periodic_payment {
             0.0 
         } else {
@@ -100,7 +137,7 @@ impl Amortization {
         };
         let ending_balance = beginning_balance - principal;
 
-        Payment {
+        Ok(Payment {
             installment_number,
             beginning_balance,
             ending_balance,
@@ -109,10 +146,10 @@ impl Amortization {
             principal,
             remaining_balance,
             date: None, 
-        }
+        })
     }
 
-    pub fn calculate_schedule(&mut self) -> Vec<Payment> {
+    pub fn calculate_schedule(&mut self) -> Result<Vec<Payment>, AmortizationError> {
         let mut balance = self.balance;
         let mut schedule = Vec::new();
         let mut current_date = self.start_date;
@@ -120,13 +157,16 @@ impl Amortization {
         let mut beginning_balance = self.balance;
         
         while balance > 0.0 {
-            let mut payment = self.calculate_payment(balance, installment_number, beginning_balance);
+            let mut payment = self.calculate_payment(balance, installment_number, beginning_balance)?;
             balance = payment.remaining_balance;
             installment_number += 1;
 
             if let Some(ref mut end_date) = current_date {
                 payment.date = Some(*end_date);
-                *end_date = *end_date + Duration::days(30); 
+                *end_date = end_date.checked_add_months(chrono::Months::new(1))
+                    .ok_or_else(|| AmortizationError::CalculationError(
+                        "Invalid date calculation".to_string()
+                    ))?;
             }
 
             schedule.push(payment.clone());
@@ -135,6 +175,6 @@ impl Amortization {
         }
 
         self.end_date = current_date;
-        schedule
+        Ok(schedule)
     }
 }
