@@ -2,5 +2,10 @@
 name = "amortize-rs"
 version = "0.1.0"
 edition = "2021"
+authors = ["Ahmed Nadeem ahmedghtwhts786@gmail.com"]
+description = "A loan amortization calculator library"
+license = "MIT"
+repository = "https://github.com/ahmed-deftoner/amortize-rs"
 
 [dependencies]
+chrono = "0.4.38"

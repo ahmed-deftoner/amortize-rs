@@ -1,28 +1,6 @@
 use std::fmt;
-
 use chrono::{Duration, NaiveDate};
-
-#[derive(Debug, Clone)]
-pub struct Payment {
-    pub installment_number: u8,
-    pub beginning_balance: f64,
-    pub ending_balance: f64,
-    pub interest: f64,
-    pub principal: f64,
-    pub date: Option<NaiveDate>,
-    pub remaining_balance: f64,
-    pub installment_amount: f64
-}
-
-impl fmt::Display for Payment {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "Date: {:?}, Interest: {:.2}, Principal: {:.2}, Remaining Balance: {:.2}, Beginning Balance: {:.2} Ending Balance: {:.2}",
-            self.date.unwrap(), self.interest, self.principal, self.remaining_balance, self.beginning_balance, self.ending_balance
-        )
-    }
-}
+use crate::payment::Payment;
 
 #[derive(Debug, Clone)]
 pub struct Amortization {
@@ -130,7 +108,7 @@ impl Amortization {
             interest,
             principal,
             remaining_balance,
-            date: None, // Date will be set later in `calculate_schedule`
+            date: None, 
         }
     }
 
@@ -146,10 +124,9 @@ impl Amortization {
             balance = payment.remaining_balance;
             installment_number += 1;
 
-            // Attach payment dates if a start date is provided
             if let Some(ref mut end_date) = current_date {
                 payment.date = Some(*end_date);
-                *end_date = *end_date + Duration::days(30); // Add 1 month (approx)
+                *end_date = *end_date + Duration::days(30); 
             }
 
             schedule.push(payment.clone());
@@ -157,15 +134,7 @@ impl Amortization {
             beginning_balance = beginning_balance - payment.principal;
         }
 
-        // Update the end date of the amortization period
         self.end_date = current_date;
         schedule
     }
-}
-
-
-fn main() {
-    let x = Amortization::new(280350.0, 3.5, 60, Some(NaiveDate::from_ymd_opt(2024, 1, 1).unwrap()));
-
-    println!("{}", x);
 }
